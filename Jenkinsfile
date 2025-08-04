@@ -47,27 +47,27 @@ pipeline {
                         transfers: [
                             sshTransfer(
                                 sourceFiles: 'target/MVC.war',
-                                remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
+                                remoteDirectory: '/apache-tomcat-10.1.19/webapps',
                                 cleanRemote: false,
                                 flatten: true,
                                 execCommand: '''
                                     echo "=== Server deployment verification ==="
                                     echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    ls -l /apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
                                     
                                     echo "Stopping Tomcat service..."
                                     /root/apache-tomcat-10.1.19/bin/shutdown.sh
                                     sleep 5
                                     
                                     echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
+                                    rm -rf /apache-tomcat-10.1.19/webapps/MVC*
                                     
                                     echo "Starting Tomcat after confirming WAR exists..."
                                     if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
                                         /root/apache-tomcat-10.1.19/bin/startup.sh
                                         sleep 10
                                         echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
+                                        ls -l /apache-tomcat-10.1.19/webapps
                                     else
                                         echo "ERROR: MVC.war not found on server, deployment aborted!"
                                         exit 1

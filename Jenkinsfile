@@ -36,48 +36,34 @@ pipeline {
         }
         
         stage('部署到服务器') {
-            steps {
-                echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
-                
-                sshPublisher(publishers: [
-                    sshPublisherDesc(
-                        configName: 'my-server',
-                        transfers: [
-                            sshTransfer(
-                                sourceFiles: 'target/MVC.war',
-                                remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
-                                cleanRemote: false,
-                                flatten: true,
-                                execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
-                                    
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
-                                    
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
-                                    else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
-                                        exit 1
-                                    fi
-                                '''
-                            )
-                        ]
+          steps {
+            sshPublisher(
+              publishers: [
+                sshPublisherDesc(
+                  configName: "my-server",
+                  transfers: [
+                    sshTransfer(
+                      sourceFiles: "target/MVC.war",
+                      remoteDirectory: "/root/apache-tomcat-10.1.19/webapps",
+                      execCommand: """
+                        # 重启服务
+                        systemctl restart tomcat
+                        
+                        # 验证部署
+                        if systemctl is-active tomcat; then
+                          echo "Deployment SUCCESS"
+                        else
+                          echo "Deployment FAILED"
+                          journalctl -u tomcat -n 50 --no-pager
+                          exit 1
+                        fi
+                      """
                     )
-                ])
-            }
+                  ]
+                )
+              ]
+            )
+          }
         }
     }
     

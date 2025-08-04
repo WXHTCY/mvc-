@@ -4,11 +4,28 @@ pipeline {
         maven 'ceshi1'
         jdk 'JDK'
     }
+    // 增加环境变量配置，提高网络稳定性
+    environment {
+        // 配置Git超时和缓存，减少网络问题影响
+        GIT_CONFIG = '''
+            git config --global http.postBuffer 524288000
+            git config --global http.sslVerify false
+            git config --global core.compression 0
+        '''
+    }
     stages {
         stage('拉取代码') {
             steps {
                 echo "Pulling code from GitHub main branch..."
-                git url: 'https://github.com/msg-555/mvc-.git', branch: 'main'
+                // 增加网络稳定性配置，使用凭据避免认证问题
+                script {
+                    // 预配置Git参数，提高网络兼容性
+                    bat "${env.GIT_CONFIG}"
+                    // 使用存储的凭据拉取代码，避免重复认证
+                    git url: 'https://github.com/msg-555/mvc-.git', 
+                        branch: 'main',
+                        credentialsId: 'b22d5859-a10f-4cfb-bf76-9460f4bf46a3'
+                }
             }
         }
         
@@ -16,7 +33,7 @@ pipeline {
             steps {
                 echo "Building WAR package with Maven..."
                 bat 'mvn clean package -Dmaven.test.skip=true'
-                // 检查 WAR 包是否生成（英文提示，避免乱码）
+                // 检查WAR包是否生成
                 bat '''
                     if not exist "target/MVC.war" (
                         echo "ERROR: WAR package not generated!"
@@ -38,8 +55,7 @@ pipeline {
         stage('部署到服务器') {
             steps {
                 echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                bat 'dir "target\\MVC.war"'
                 
                 sshPublisher(publishers: [
                     sshPublisherDesc(
@@ -50,10 +66,14 @@ pipeline {
                                 remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
                                 cleanRemote: false,
                                 flatten: true,
-                                execCommand: '''
+                                // 使用sh -c包裹命令，确保Linux正确解析换行符
+                                execCommand: '''sh -c '
                                     echo "=== Server deployment verification ==="
+                                    echo "Current user: $(whoami)"
+                                    echo "Current directory: $(pwd)"
+                                    
                                     echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || { echo "WAR package upload failed!"; exit 1; }
                                     
                                     echo "Stopping Tomcat service..."
                                     /root/apache-tomcat-10.1.19/bin/shutdown.sh
@@ -62,19 +82,28 @@ pipeline {
                                     echo "Cleaning old deployment files..."
                                     rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
                                     
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
-                                    else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                    echo "Verifying WAR package exists after cleanup..."
+                                    if [ ! -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
+                                        echo "ERROR: MVC.war missing after cleanup!"
                                         exit 1
                                     fi
-                                '''
+                                    
+                                    echo "Starting Tomcat..."
+                                    /root/apache-tomcat-10.1.19/bin/startup.sh
+                                    sleep 10
+                                    
+                                    echo "Tomcat process status:"
+                                    ps -ef | grep tomcat | grep -v grep
+                                    
+                                    echo "Webapps directory after deployment:"
+                                    ls -l /root/apache-tomcat-10.1.19/webapps
+                                ' '''
                             )
-                        ]
+                        ],
+                        // 开启详细日志，便于排查问题
+                        verbose: true,
+                        // 延长超时时间，适应网络较慢的情况
+                        timeout: 120000
                     )
                 ])
             }

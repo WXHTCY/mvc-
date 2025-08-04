@@ -7,13 +7,11 @@ pipeline {
     stages {
         stage('拉取代码') {
             steps {
-                echo "通过 SSH 拉取代码..."
-                git url: 'git@github.com:msg-555/mvc-.git',  // SSH 地址
-                    branch: 'main',
-                    credentialsId: 'github-ssh-credentials'  // 步骤 3 中配置的凭据 ID
+                echo "Pulling code from GitHub main branch..."
+                git url: 'https://github.com/msg-555/mvc-.git', branch: 'main'
             }
         }
-                
+        
         stage('构建项目') {
             steps {
                 echo "Building WAR package with Maven..."
@@ -58,7 +56,7 @@ pipeline {
                                     ls -l /apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
                                     
                                     echo "Stopping Tomcat service..."
-                                    /apache-tomcat-10.1.19/bin/shutdown.sh
+                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
                                     sleep 5
                                     
                                     echo "Cleaning old deployment files..."

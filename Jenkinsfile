@@ -7,8 +7,12 @@ pipeline {
     stages {
         stage('拉取代码') {
             steps {
-                echo "Pulling code from GitHub main branch..."
-                git url: 'https://github.com/msg-555/mvc-.git', branch: 'main'
+                echo "通过 SSH 协议拉取代码..."
+                git(
+                    url: 'git@github.com:msg-555/mvc-.git',  // SSH 地址（替换为你的仓库 SSH 地址）
+                    branch: 'main',
+                    credentialsId: 'github-ssh-cred'  // 步骤 3 配置的凭据 ID
+                )
             }
         }
         

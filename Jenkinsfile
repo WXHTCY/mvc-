@@ -37,44 +37,26 @@ pipeline {
         
         stage('部署到服务器') {
             steps {
-                echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                echo "Deploying from Windows to Linux server..."
                 
+                // 1. 本地验证WAR包（Windows路径）
+                bat 'if not exist "target\\MVC.war" ( echo "WAR包不存在！" && exit 1 )'
+                
+                // 2. 传输文件并执行简化的Linux命令（避免换行符问题）
                 sshPublisher(publishers: [
                     sshPublisherDesc(
                         configName: 'my-server',
                         transfers: [
                             sshTransfer(
-                                sourceFiles: 'target/MVC.war',
+                                sourceFiles: 'target/MVC.war',  // 插件会自动处理Windows到Linux的路径转换
                                 remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
-                                cleanRemote: false,
                                 flatten: true,
-                                execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
-                                    
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
-                                    
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
-                                    else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
-                                        exit 1
-                                    fi
-                                '''
+                                // 关键：使用单行命令，避免Windows换行符影响Linux解析
+                                execCommand: 'echo "=== 服务器信息 ==="; whoami; pwd; echo "=== 检查WAR包 ==="; ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war; echo "=== 检查Tomcat路径 ==="; ls -l /root/apache-tomcat-10.1.19/bin/shutdown.sh'
                             )
-                        ]
+                        ],
+                        verbose: true,  // 输出详细传输日志
+                        timeout: 60000
                     )
                 ])
             }

@@ -16,13 +16,17 @@ pipeline {
             steps {
                 echo "Building WAR package with Maven..."
                 bat 'mvn clean package -Dmaven.test.skip=true'
-                // 检查 WAR 包是否生成（英文提示，避免乱码）
+                
+                // 检查 WAR 包是否生成并显示详细信息
                 bat '''
+                    echo "Checking WAR package existence..."
+                    dir "target"
                     if not exist "target/MVC.war" (
                         echo "ERROR: WAR package not generated!"
                         exit 1
                     ) else (
-                        echo "WAR package generated successfully: target/MVC.war"
+                        echo "WAR package generated successfully:"
+                        dir "target/MVC.war"
                     )
                 '''
             }
@@ -35,12 +39,25 @@ pipeline {
             }
         }
         
+        stage('验证文件准备') {
+            steps {
+                echo "Verifying WAR file before upload..."
+                script {
+                    def warFile = fileExists('target/MVC.war')
+                    if (!warFile) {
+                        error("WAR file not found! Cannot proceed with deployment.")
+                    } else {
+                        echo "WAR file confirmed: target/MVC.war"
+                    }
+                }
+            }
+        }
+        
         stage('部署到服务器') {
             steps {
-                echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                echo "Starting deployment process..."
                 
+                // 增加详细的上传日志
                 sshPublisher(publishers: [
                     sshPublisherDesc(
                         configName: 'my-server',
@@ -51,30 +68,42 @@ pipeline {
                                 cleanRemote: false,
                                 flatten: true,
                                 execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    echo "=== Starting deployment verification ==="
+                                    echo "Current directory contents:"
+                                    pwd
+                                    ls -la
                                     
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
+                                    echo "Webapps directory before deployment:"
+                                    ls -la /root/apache-tomcat-10.1.19/webapps/
                                     
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
+                                    echo "Checking uploaded WAR package..."
                                     if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
+                                        echo "WAR package uploaded successfully!"
+                                        echo "File details:"
+                                        ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war
+                                        
+                                        echo "Stopping Tomcat service..."
+                                        /root/apache-tomcat-10.1.19/bin/shutdown.sh
+                                        sleep 5
+                                        
+                                        echo "Cleaning old deployment files..."
+                                        rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
+                                        
+                                        echo "Starting Tomcat..."
                                         /root/apache-tomcat-10.1.19/bin/startup.sh
                                         sleep 10
+                                        
                                         echo "Webapps directory after deployment:"
                                         ls -l /root/apache-tomcat-10.1.19/webapps
                                     else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                        echo "ERROR: MVC.war not found on server after upload attempt!"
                                         exit 1
                                     fi
                                 '''
                             )
-                        ]
+                        ],
+                        // 增加SSH操作的日志输出
+                        verbose: true
                     )
                 ])
             }

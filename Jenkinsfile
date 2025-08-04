@@ -38,8 +38,8 @@ pipeline {
         stage('部署到服务器') {
             steps {
                 echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                // 本地验证WAR包存在（Windows路径）
+                bat 'dir "target\\MVC.war"'  // 保持Windows路径格式正确
                 
                 sshPublisher(publishers: [
                     sshPublisherDesc(
@@ -50,32 +50,72 @@ pipeline {
                                 remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
                                 cleanRemote: false,
                                 flatten: true,
+                                // 优化服务器端命令：增加错误捕获和状态校验
                                 execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    # 开启命令执行日志（每步打印，类似手动操作时的实时查看）
+                                    set -x
                                     
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
+                                    # 1. 严格检查WAR包是否上传成功（不存在则立即终止）
+                                    echo "=== 1. 检查WAR包是否存在 ==="
+                                    if [ ! -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
+                                        echo "ERROR: WAR包未上传到服务器！"
+                                        exit 1  # 终止部署，与手动执行时的"不上传则不继续"一致
+                                    fi
                                     
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
-                                    else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                    # 2. 停止Tomcat服务（确保停止成功）
+                                    echo "=== 2. 停止Tomcat服务 ==="
+                                    if [ ! -f "/root/apache-tomcat-10.1.19/bin/shutdown.sh" ]; then
+                                        echo "ERROR: Tomcat停止脚本不存在！"
                                         exit 1
                                     fi
+                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
+                                    shutdown_exit_code=$?  # 捕获命令返回码
+                                    if [ $shutdown_exit_code -ne 0 ]; then
+                                        echo "ERROR: Tomcat停止失败，返回码：$shutdown_exit_code"
+                                        # 手动执行时会强制杀进程，脚本中增加容错
+                                        ps -ef | grep tomcat | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null
+                                        sleep 3
+                                    fi
+                                    
+                                    # 3. 清理旧部署文件（确保清理成功）
+                                    echo "=== 3. 清理旧文件 ==="
+                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
+                                    rm_exit_code=$?
+                                    if [ $rm_exit_code -ne 0 ]; then
+                                        echo "ERROR: 旧文件清理失败，返回码：$rm_exit_code"
+                                        exit 1  # 清理失败会导致部署冲突，必须终止
+                                    fi
+                                    
+                                    # 4. 再次确认WAR包存在（防止清理时误删）
+                                    echo "=== 4. 再次确认WAR包 ==="
+                                    if [ ! -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
+                                        echo "ERROR: WAR包丢失，部署终止！"
+                                        exit 1
+                                    fi
+                                    
+                                    # 5. 启动Tomcat服务（确保启动成功）
+                                    echo "=== 5. 启动Tomcat服务 ==="
+                                    if [ ! -f "/root/apache-tomcat-10.1.19/bin/startup.sh" ]; then
+                                        echo "ERROR: Tomcat启动脚本不存在！"
+                                        exit 1
+                                    fi
+                                    /root/apache-tomcat-10.1.19/bin/startup.sh
+                                    startup_exit_code=$?
+                                    if [ $startup_exit_code -ne 0 ]; then
+                                        echo "ERROR: Tomcat启动失败，返回码：$startup_exit_code"
+                                        exit 1
+                                    fi
+                                    
+                                    # 6. 验证部署结果（类似手动执行后的检查）
+                                    echo "=== 6. 部署结果验证 ==="
+                                    sleep 10  # 等待Tomcat解压WAR包
+                                    ls -l /root/apache-tomcat-10.1.19/webapps | grep MVC
+                                    echo "Tomcat进程状态：$(ps -ef | grep tomcat | grep -v grep)"
+                                    echo "部署成功！"
                                 '''
                             )
-                        ]
-                    )
+                        ])
+                    ])
                 ])
             }
         }

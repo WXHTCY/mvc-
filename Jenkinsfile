@@ -37,9 +37,8 @@ pipeline {
         
         stage('部署到服务器') {
             steps {
-                echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                echo "Deploying WAR package to server..."
+                bat 'dir "target\\MVC.war"'
                 
                 sshPublisher(publishers: [
                     sshPublisherDesc(
@@ -50,31 +49,42 @@ pipeline {
                                 remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
                                 cleanRemote: false,
                                 flatten: true,
-                                execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                // 关键：用单引号包裹命令，避免Windows换行符干扰，强制输出
+                                execCommand: '/bin/bash -c \'
+                                    # 强制创建日志文件（即使后续失败，也能确认执行到这一步）
+                                    LOG_FILE="/tmp/jenkins_deploy.log"
+                                    > "$LOG_FILE"  # 清空并创建文件
                                     
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
+                                    # 输出基础信息到日志和控制台
+                                    echo "=== 脚本开始执行: $(date) ===" | tee -a "$LOG_FILE"
+                                    echo "当前用户: $(whoami)" | tee -a "$LOG_FILE"
+                                    echo "当前目录: $(pwd)" | tee -a "$LOG_FILE"
+                                    echo "Tomcat目录检查: /root/apache-tomcat-10.1.19" | tee -a "$LOG_FILE"
                                     
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
+                                    # 验证Tomcat目录是否存在
+                                    if [ -d "/root/apache-tomcat-10.1.19" ]; then
+                                        echo "Tomcat目录存在" | tee -a "$LOG_FILE"
                                     else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                        echo "ERROR: Tomcat目录不存在！" | tee -a "$LOG_FILE"
                                         exit 1
                                     fi
-                                '''
+                                    
+                                    # 验证WAR包是否上传成功
+                                    WAR_PATH="/root/apache-tomcat-10.1.19/webapps/MVC.war"
+                                    if [ -f "$WAR_PATH" ]; then
+                                        echo "WAR包存在: $WAR_PATH" | tee -a "$LOG_FILE"
+                                    else
+                                        echo "ERROR: WAR包未找到！" | tee -a "$LOG_FILE"
+                                        exit 1
+                                    fi
+                                    
+                                    # 测试基础命令执行（确保脚本可正常运行）
+                                    echo "=== 测试命令执行成功 ===" | tee -a "$LOG_FILE"
+                                \''  # 注意：此处用单引号+反斜杠转义，避免格式错误
                             )
-                        ]
+                        ],
+                        verbose: true,
+                        timeout: 180000
                     )
                 ])
             }

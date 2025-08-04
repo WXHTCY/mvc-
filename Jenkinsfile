@@ -5,12 +5,12 @@ pipeline {
         jdk 'JDK'
     }
     stages {
-        stage('拉取代码') {
-            steps {
-                echo "Pulling code from GitHub main branch..."
-                git url: 'https://github.com/msg-555/mvc-.git', branch: 'main'
+        steps('拉取代码') {
+                echo "通过 SSH 拉取代码..."
+                git url: 'git@github.com:msg-555/mvc-.git',  // SSH 地址
+                    branch: 'main',
+                    credentialsId: 'github-ssh-credentials'  // 步骤 3 中配置的凭据 ID
             }
-        }
         
         stage('构建项目') {
             steps {

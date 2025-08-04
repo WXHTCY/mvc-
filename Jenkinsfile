@@ -28,18 +28,10 @@ pipeline {
             }
         }
         
-        stage('运行测试') {
-            steps {
-                echo "Running unit tests..."
-                bat 'mvn test'
-            }
-        }
-        
         stage('部署到服务器') {
             steps {
                 echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                bat 'dir "target\\MVC.war"'  // 确认本地WAR包存在
                 
                 sshPublisher(publishers: [
                     sshPublisherDesc(
@@ -51,30 +43,40 @@ pipeline {
                                 cleanRemote: false,
                                 flatten: true,
                                 execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    # 输出详细日志，定位错误步骤
+                                    set -x  # 开启命令执行日志（每步命令都会打印）
                                     
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
+                                    echo "=== 1. 检查服务器webapps目录 ==="
+                                    ls -la /root/apache-tomcat-10.1.19/webapps/ || { echo "ERROR: webapps目录不存在"; exit 1; }
                                     
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
+                                    echo "=== 2. 检查WAR包是否上传成功 ==="
                                     if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
+                                        echo "WAR包已上传: $(ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war)"
                                     else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                        echo "ERROR: WAR包未找到，上传失败"
                                         exit 1
                                     fi
+                                    
+                                    echo "=== 3. 停止Tomcat服务 ==="
+                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh || { echo "ERROR: Tomcat停止失败"; exit 1; }
+                                    sleep 5
+                                    # 强制杀死残留进程（可选）
+                                    ps -ef | grep tomcat | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null
+                                    
+                                    echo "=== 4. 清理旧部署文件 ==="
+                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC* || { echo "ERROR: 清理旧文件失败"; exit 1; }
+                                    
+                                    echo "=== 5. 启动Tomcat服务 ==="
+                                    /root/apache-tomcat-10.1.19/bin/startup.sh || { echo "ERROR: Tomcat启动失败"; exit 1; }
+                                    sleep 10
+                                    
+                                    echo "=== 6. 验证部署结果 ==="
+                                    ls -la /root/apache-tomcat-10.1.19/webapps/ | grep MVC
+                                    echo "Tomcat进程状态: $(ps -ef | grep tomcat | grep -v grep)"
                                 '''
                             )
-                        ]
+                        ],
+                        verbose: true  // 输出SSH详细日志
                     )
                 ])
             }

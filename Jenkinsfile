@@ -16,13 +16,14 @@ pipeline {
             steps {
                 echo "Building WAR package with Maven..."
                 bat 'mvn clean package -Dmaven.test.skip=true'
-                // 检查 WAR 包是否生成（英文提示，避免乱码）
+                
                 bat '''
-                    if not exist "target/MVC.war" (
+                    if not exist "target\\MVC.war" (
                         echo "ERROR: WAR package not generated!"
                         exit 1
                     ) else (
-                        echo "WAR package generated successfully: target/MVC.war"
+                        echo "WAR package generated: target\\MVC.war"
+                        dir /s/b target\\MVC.war
                     )
                 '''
             }
@@ -37,9 +38,7 @@ pipeline {
         
         stage('部署到服务器') {
             steps {
-                echo "Deploying WAR package to server Tomcat directory..."
-                // 修正 dir 命令语法（使用正确的 Windows 命令格式）
-                bat 'dir "target\\MVC.war"'  // Windows 路径用反斜杠，且不加多余参数
+                echo "Deploying WAR package to Tomcat..."
                 
                 sshPublisher(publishers: [
                     sshPublisherDesc(
@@ -47,29 +46,45 @@ pipeline {
                         transfers: [
                             sshTransfer(
                                 sourceFiles: 'target/MVC.war',
-                                remoteDirectory: '/root/apache-tomcat-10.1.19/webapps',
+                                remoteDirectory: '/opt/tomcat/webapps',
                                 cleanRemote: false,
                                 flatten: true,
                                 execCommand: '''
-                                    echo "=== Server deployment verification ==="
-                                    echo "Checking WAR package in webapps directory..."
-                                    ls -l /root/apache-tomcat-10.1.19/webapps/MVC.war || echo "WAR package upload failed!"
+                                    #!/bin/bash
+                                    echo "=== 服务器部署验证 ==="
+                                    DEPLOY_PATH="/opt/tomcat/webapps"
+                                    WAR_FILE="$DEPLOY_PATH/MVC.war"
                                     
-                                    echo "Stopping Tomcat service..."
-                                    /root/apache-tomcat-10.1.19/bin/shutdown.sh
-                                    sleep 5
+                                    # 1. 验证文件是否存在
+                                    if [ ! -f "$WAR_FILE" ]; then
+                                        echo "❌ 错误: WAR文件未找到: $WAR_FILE"
+                                        exit 1
+                                    fi
+                                    echo "✅ 找到WAR文件: $(ls -lh $WAR_FILE)"
                                     
-                                    echo "Cleaning old deployment files..."
-                                    rm -rf /root/apache-tomcat-10.1.19/webapps/MVC*
-                                    
-                                    echo "Starting Tomcat after confirming WAR exists..."
-                                    if [ -f "/root/apache-tomcat-10.1.19/webapps/MVC.war" ]; then
-                                        /root/apache-tomcat-10.1.19/bin/startup.sh
-                                        sleep 10
-                                        echo "Webapps directory after deployment:"
-                                        ls -l /root/apache-tomcat-10.1.19/webapps
+                                    # 2. 重启Tomcat服务
+                                    echo "停止Tomcat服务..."
+                                    if sudo systemctl stop tomcat; then
+                                        echo "Tomcat已停止"
+                                        sleep 3
                                     else
-                                        echo "ERROR: MVC.war not found on server, deployment aborted!"
+                                        echo "⚠️ 警告: 停止Tomcat失败 (可能未运行)"
+                                    fi
+                                    
+                                    # 3. 清理旧部署
+                                    echo "清理旧应用: $DEPLOY_PATH/MVC*"
+                                    sudo rm -rf $DEPLOY_PATH/MVC*
+                                    
+                                    # 4. 启动Tomcat
+                                    echo "启动Tomcat..."
+                                    if sudo systemctl start tomcat; then
+                                        echo "✅ Tomcat启动成功"
+                                        echo "等待应用部署..."
+                                        sleep 15
+                                        echo "当前webapps内容:"
+                                        ls -l $DEPLOY_PATH
+                                    else
+                                        echo "❌ 错误: 启动Tomcat失败"
                                         exit 1
                                     fi
                                 '''
@@ -80,18 +95,17 @@ pipeline {
             }
         }
     }
-    
     post {
         success {
-            echo "=============================================="
-            echo "🎉 Build and deployment completed successfully!"
-            echo "Access URL: http://111.230.94.55:8080/MVC"
-            echo "=============================================="
+            echo "========================================"
+            echo "🎉 构建部署成功!"
+            echo "访问地址: http://111.230.94.55:8080/MVC"
+            echo "========================================"
         }
         failure {
-            echo "=============================================="
-            echo "❌ Build or deployment failed. Check console logs for details."
-            echo "=============================================="
+            echo "========================================"
+            echo "❌ 构建或部署失败，请检查日志"
+            echo "========================================"
         }
     }
 }
